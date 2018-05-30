@@ -46,6 +46,6 @@ def generate_data(data_train, data_out):
 
 
 if __name__ == "__main__":
-    data_train = "./data/train_stories.csv"
-    data_out   = "./data/train_stories_neg.csv"
+    data_train = "./train_stories.csv"
+    data_out   = "./train_stories_neg.csv"
     generate_data(data_train, data_out)
