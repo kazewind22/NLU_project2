@@ -1,5 +1,10 @@
 *.csv
 output
+summaries
+saved
+*.pkl
+*.txt
+__pycache__
 
 # OS generated files #
 ######################

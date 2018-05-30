@@ -1,0 +1,13 @@
+result/embeddingSize_300_hiddenSize_512_rnnLayers_1_maxSteps_30_dropOut_1.0_learningRate_0.001_batchSize_50_vocabSize_-1_preEmbedding_False_attSize_512_loadModel_False
+embeddingSize 300
+hiddenSize 512
+attSize 512
+rnnLayers 1
+maxSteps 30
+dropOut 1.0
+learningRate 0.001
+batchSize 50
+epochs 200
+loadModel False
+vocabSize -1
+preEmbeddings False
