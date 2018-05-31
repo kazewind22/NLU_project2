@@ -2,10 +2,11 @@ import csv
 import random
 import numpy as np
 
-def generate_data(data_train, data_out):
+def generate_data_random(data_train):
     random.seed(22)
-    header = np.array(['InputStoryid','InputSentence1','InputSentence2','InputSentence3',
-        'InputSentence4','RandomFifthSentenceQuiz1','RandomFifthSentenceQuiz2','AnswerRightEnding'])
+    header = np.array(['InputSentence1','InputSentence2','InputSentence3',
+        'InputSentence4','AnswerRightEnding','FakeEnding1','FakeEnding2',
+        'FakeEnding3','FakeEnding4','FakeEnding5','FakeEnding6'])
 
     # shuffle correct ending to get random ending
     corpus = []
@@ -14,38 +15,53 @@ def generate_data(data_train, data_out):
         reader.__next__() #drop header
         for row in reader:
             corpus.append(row[6])
-    random.shuffle(corpus)
 
-    def process_row(row, neg):
-        if random.randint(0,1):
-            row.append(row[5])
-            row[5] = neg
-            row.append(2)
-        else:
-            row.append(neg)
-            row.append(1)
-        return row
-
-    with open(data_train, 'r') as inputfile, open(data_out, 'w') as outputfile:
+    with open(data_train, 'r') as inputfile, open(data_train[:-4]+'_random.csv', 'w') as outputfile:
         reader = csv.reader(inputfile)
         writer = csv.writer(outputfile, delimiter=',',
                             quotechar='"', quoting=csv.QUOTE_MINIMAL)
         reader.__next__()
         writer.writerow(header)
-        for i, row in enumerate(reader):
+        for row in reader:
+            # remove story id
+            row.remove(row[0])
             # remove story title
-            row.remove(row[1])
+            row.remove(row[0])
 
             # write random negative ending
-            rand = process_row(row.copy(), corpus[i])
-            writer.writerow(rand)
+            i = 0
+            while i < 6:
+                sample = random.choice(corpus)
+                if sample == row[4]:
+                    pass
+                else:
+                    row.append(sample)
+                    i += 1
+            writer.writerow(row)
 
-            # write backward negative ending
-            back = process_row(row.copy(), row[random.randint(1,4)])
-            writer.writerow(back)
+def generate_data_back(data_train):
+    random.seed(22)
+    header = np.array(['InputSentence1','InputSentence2','InputSentence3',
+        'InputSentence4','AnswerRightEnding','FakeEnding1','FakeEnding2',
+        'FakeEnding3','FakeEnding4'])
+
+    with open(data_train, 'r') as inputfile, open(data_train[:-4]+'_back.csv', 'w') as outputfile:
+        reader = csv.reader(inputfile)
+        writer = csv.writer(outputfile, delimiter=',',
+                            quotechar='"', quoting=csv.QUOTE_MINIMAL)
+        reader.__next__()
+        writer.writerow(header)
+        for row in reader:
+            # remove story id
+            row.remove(row[0])
+            # remove story title
+            row.remove(row[0])
+
+            row += row[0:4]
+            writer.writerow(row)
 
 
 if __name__ == "__main__":
     data_train = "./train_stories.csv"
-    data_out   = "./train_stories_neg.csv"
-    generate_data(data_train, data_out)
+    generate_data_random(data_train)
+    generate_data_back(data_train)
