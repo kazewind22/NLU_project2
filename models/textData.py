@@ -72,6 +72,7 @@ class TextData:
                 embed = glove_embed[word]
             else:
                 embed = glove_embed[self.UNK_WORD]
+                self.word2id[word] = self.word2id[self.UNK_WORD]
             embeds.append(embed)
 
         embeds = np.asarray(embeds)
@@ -133,7 +134,12 @@ class TextData:
                         words.append(self.PAD_WORD)
                     sample_sentences.append(words)
 
-                    word_ids = [self.word2id[word] for word in words]
+                    word_ids = []
+                    for word in words:
+                        if word in self.word2id.keys():
+                            word_ids.append(self.word2id[word])
+                        else:
+                            word_ids.append(self.word2id[self.UNK_WORD])
                     sample_input.append(word_ids)
 
                 # label = 0: the 5th sentence is correct
@@ -146,31 +152,115 @@ class TextData:
 
         return all_samples
 
+    def map_to_id(self, sentences):
+        inputs = []
+        padded_sentences = []
+        length = []
+        for sentence in sentences:
+            words = nltk.word_tokenize(sentence)
+            length.append(len(words))
+            while len(words) < self.args.maxSteps:
+                words.append(self.PAD_WORD)
+
+            word_ids = []
+            for word in words:
+                if word in self.word2id.keys():
+                    word_ids.append(self.word2id[word])
+                else:
+                    #print(word)
+                    word_ids.append(self.word2id[self.UNK_WORD])
+            inputs.append(word_ids)
+            padded_sentences.append(words)
+
+        return inputs, padded_sentences, length
+
+    def _create_train_samples(self, file_path, tag='near'):
+        if tag == 'near':
+            n_fake = self.args.near
+        elif tag == 'random':
+            n_fake = self.args.random
+        else:
+            n_fake = self.args.backward
+
+        if n_fake == 0:
+            return []
+
+        with open(file_path, 'r', encoding='ISO-8859-1') as file:
+            all_samples = []
+            length = len(file.readlines())
+            file.seek(0)
+            reader = csv.reader(file)
+            for idx, line in enumerate(tqdm(reader, total=length)):
+                if idx == 0:
+                    continue
+                # 4 context sentences and 1 correct sentences
+                context_sentences = line[0:5]
+                context_inputs, context_sentences, context_length = self.map_to_id(context_sentences)
+
+                # the 5th sentence is always the correct sentence in our examples
+                label = 0
+
+                fake_sentences = line[5:]
+                fake_inputs, fake_sentences, fake_length = self.map_to_id(fake_sentences)
+
+
+                fake_inputs = fake_inputs[0:n_fake]
+                fake_sentences = fake_sentences[0:n_fake]
+                fake_length = fake_length[0:n_fake]
+
+                for i, fake in enumerate(fake_sentences):
+                    sample_input = context_inputs + [fake_inputs[i]]
+                    sample_sentences = context_sentences + [fake]
+                    sample_length = context_length + [fake_length[i]]
+                    sample = Sample(input_=sample_input, sentences=sample_sentences, length=sample_length,
+                            label=label)
+
+                    all_samples.append(sample)
+
+        return all_samples
+
     def _create_data(self):
 
-        train_path = os.path.join(self.args.dataDir, self.args.trainFile)
+        near_path = os.path.join(self.args.dataDir, self.args.nearFile)
+        random_path = os.path.join(self.args.dataDir, self.args.randomFile)
+        backward_path = os.path.join(self.args.dataDir, self.args.backwardFile)
+
         val_path = os.path.join(self.args.dataDir, self.args.valFile)
         test_path = os.path.join(self.args.dataDir, self.args.testFile)
 
-        print('Building vocabularies')
-        self.word2id, self.id2word = self._build_vocab(train_path, val_path, test_path)
 
-        print('Building training samples!')
-        train_samples = self._create_samples(train_path)
-        random.shuffle(train_samples)
+
+        print('Building vocabularies')
+        self.word2id, self.id2word = self._build_vocab(near_path, val_path, test_path)
+
         print('Building val samples!')
         val_samples = self._create_samples(val_path)
         print('Building test samples!')
         test_samples = self._create_samples(test_path)
 
+
+        print('Building nearest samples!')
+        near_samples = self._create_train_samples(near_path, tag='near')
+
+        print('Building random samples!')
+        random_samples = self._create_train_samples(random_path, tag='random')
+
+        print('Building backward samples!')
+        backward_samples = self._create_train_samples(backward_path, tag='backward')
+
+        train_samples = near_samples + random_samples + backward_samples
+
+        random.shuffle(train_samples)
+
+
         return train_samples, val_samples, test_samples
 
     @staticmethod
-    def _read_words(filename, all_words=None):
+    def _read_words(filename, all_words=None, tag='train'):
         if all_words is None:
             all_words = []
 
-        with open(filename, 'r') as file:
+        with open(filename, 'r', encoding='ISO-8859-1') as file:
             length = len(file.readlines())
             file.seek(0)
             reader = csv.reader(file)
@@ -178,9 +268,12 @@ class TextData:
                 if idx == 0:
                     continue
 
-                assert len(line) == 8
+                assert len(line) == 8 or len(line) == 11 or len(line) == 9
                 # 6 sentences, the first 4 are contexts, last 2 candidates
-                sentences = line[1:7]
+                if tag != 'train':
+                    sentences = line[1:7]
+                else:
+                    sentences = line[:]
 
                 # remove double quotes
                 for i, sentence in enumerate(sentences):
@@ -190,11 +283,10 @@ class TextData:
         return all_words
 
     def _build_vocab(self, train_path, val_path, test_path):
-        all_words = self._read_words(train_path)
-        all_words = self._read_words(val_path, all_words=all_words)
-        all_words = self._read_words(test_path, all_words=all_words)
+        all_words = self._read_words(train_path, tag='train')
+        all_words = self._read_words(val_path, all_words=all_words, tag = 'val')
+        all_words = self._read_words(test_path, all_words=all_words, tag = 'test')
 
-        print()
         counter = Counter(all_words)
 
         count_pairs = sorted(counter.items(), key=lambda x: (-x[1], x[0]))
