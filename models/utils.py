@@ -36,13 +36,20 @@ def constructFileName(args, prefix=None, tag=None):
     if prefix == args.dataDir:
         file_name = ''
         file_name += prefix + '-'
+        file_name += str(args.near) + '-'
+        file_name += str(args.random) + '-'
+        file_name += str(args.backward) + '-'
         file_name += str(args.vocabSize) + '-'
         file_name += str(args.batchSize) + '-'
         file_name += str(args.maxSteps) + '.pkl'
         return file_name
 
     file_name = ''
-    file_name += 'embeddingSize_' + str(args.embeddingSize)
+
+    file_name += 'near_' + str(args.near)
+    file_name += '_random' + str(args.random)
+    file_name += '_backward' + str(args.backward)
+    file_name += '_embeddingSize_' + str(args.embeddingSize)
     file_name += '_hiddenSize_' + str(args.hiddenSize)
     file_name += '_rnnLayers_' + str(args.rnnLayers)
     file_name += '_maxSteps_' + str(args.maxSteps)
@@ -50,8 +57,6 @@ def constructFileName(args, prefix=None, tag=None):
 
     file_name += '_learningRate_' + str(args.learningRate)
     file_name += '_batchSize_' + str(args.batchSize)
-    file_name += '_vocabSize_' + str(args.vocabSize)
-    file_name += '_preEmbedding_' + str(args.preEmbedding)
     file_name += '_attSize_' + str(args.attSize)
     if tag != 'model':
         file_name += '_loadModel_' + str(args.loadModel)
@@ -61,6 +66,11 @@ def constructFileName(args, prefix=None, tag=None):
     return file_name
 
 def writeInfo(out, args):
+
+    out.write('random {}\n'.format(args.random))
+    out.write('near {}\n'.format(args.near))
+    out.write('backward {}\n'.format(args.backward))
+
     out.write('embeddingSize {}\n'.format(args.embeddingSize))
     out.write('hiddenSize {}\n'.format(args.hiddenSize))
     out.write('attSize {}\n'.format(args.attSize))

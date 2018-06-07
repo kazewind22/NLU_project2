@@ -2,11 +2,12 @@ import tensorflow as tf
 import argparse
 from models import utils
 from models.textData import TextData
-from models.model_sentence_att import Model
+from models.model_att import Model_att
+from models.model_vanilla import Model_vanilla
+from models.model_satt import Model_satt
 import os
 import pickle as p
 from tqdm import tqdm
-import numpy as np
 
 class Predict:
 
@@ -33,11 +34,18 @@ class Predict:
         parser = argparse.ArgumentParser()
 
         parser.add_argument('--resultDir', type=str, default='result', help='result directory')
-        parser.add_argument('--testDir', type=str, default='test_result')
         # data location
         dataArgs = parser.add_argument_group('Dataset options')
 
-        dataArgs.add_argument('--summaryDir', type=str, default='./summaries')
+        dataArgs.add_argument('--random', type=int, default=3)
+        dataArgs.add_argument('--backward', type=int, default=3)
+        dataArgs.add_argument('--near', type=int, default=3)
+
+        dataArgs.add_argument('--randomFile', type=str, default='random.csv')
+        dataArgs.add_argument('--backwardFile', type=str, default='backward.csv')
+        dataArgs.add_argument('--nearFile', type=str, default='near.csv')
+
+        dataArgs.add_argument('--summaryDir', type=str, default='summaries')
         dataArgs.add_argument('--datasetName', type=str, default='dataset', help='a TextData object')
 
         dataArgs.add_argument('--dataDir', type=str, default='data', help='dataset directory, save pkl here')
@@ -60,13 +68,17 @@ class Predict:
         nnArgs.add_argument('--numClasses', type=int, default=2)
         nnArgs.add_argument('--ffnnLayers', type=int, default=2)
         nnArgs.add_argument('--ffnnSize', type=int, default=300)
+        nnArgs.add_argument('--pffnnLayers', type=int, default=2)
+        nnArgs.add_argument('--pffnnSize', type=int, default=512)
+        nnArgs.add_argument('--nn', type=str, default='att')
         # training options
         trainingArgs = parser.add_argument_group('Training options')
+        trainingArgs.add_argument('--dataProcess', action='store_true')
         trainingArgs.add_argument('--modelPath', type=str, default='saved')
         trainingArgs.add_argument('--preEmbedding', action='store_true')
         trainingArgs.add_argument('--dropOut', type=float, default=1.0, help='dropout rate for RNN (keep prob)')
         trainingArgs.add_argument('--learningRate', type=float, default=0.001, help='learning rate')
-        trainingArgs.add_argument('--batchSize', type=int, default=50, help='batch size')
+        trainingArgs.add_argument('--batchSize', type=int, default=100, help='batch size')
         # max_grad_norm
         ## do not add dropOut in the test mode!
         trainingArgs.add_argument('--twitterTest', action='store_true', help='whether or not do test in twitter dataset')
@@ -82,10 +94,22 @@ class Predict:
         self.args = self.parse_args(args)
 
 
+        self.args.resultDir = self.args.nn +'_' + self.args.resultDir
+        self.args.modelPath = self.args.nn +'_' + self.args.modelPath
+        self.args.summaryDir = self.args.nn +'_' + self.args.summaryDir
+
+        if not os.path.exists(self.args.resultDir):
+            os.makedirs(self.args.resultDir)
+
+        if not os.path.exists(self.args.modelPath):
+            os.makedirs(self.args.modelPath)
+
+        if not os.path.exists(self.args.summaryDir):
+            os.makedirs(self.args.summaryDir)
+
         self.outFile = utils.constructFileName(self.args, prefix=self.args.resultDir)
         self.args.datasetName = utils.constructFileName(self.args, prefix=self.args.dataDir)
         datasetFileName = os.path.join(self.args.dataDir, self.args.datasetName)
-
 
         if not os.path.exists(datasetFileName):
             self.textData = TextData(self.args)
@@ -97,6 +121,9 @@ class Predict:
                 self.textData = p.load(datasetFile)
             print('dataset loaded from {}'.format(datasetFileName))
 
+        if self.args.dataProcess:
+            exit(0)
+
         sessConfig = tf.ConfigProto(allow_soft_placement=True)
         sessConfig.gpu_options.allow_growth = True
 
@@ -107,9 +134,16 @@ class Predict:
         # summary writer
         self.summaryDir = utils.constructFileName(self.args, prefix=self.args.summaryDir)
 
-
         with tf.device(self.args.device):
-            self.model = Model(self.args, self.textData)
+            if self.args.nn == 'vanilla':
+                print('Creating vanilla model!')
+                self.model = Model_vanilla(self.args, self.textData)
+            elif self.args.nn == 'att':
+                print('Creating model with sentences and words attention!')
+                self.model = Model_att(self.args, self.textData)
+            else:
+                print('Creating model with only words attention!')
+                self.model = Model_satt(self.args, self.textData)
             print('Model created')
 
             # saver can only be created after we have the model
@@ -146,8 +180,8 @@ class Predict:
 
         for e in range(self.args.epochs):
             # training
-            trainBatches = self.textData.train_batches
-            #trainBatches = self.textData.get_batches(tag='train')
+            #trainBatches = self.textData.train_batches
+            trainBatches = self.textData.get_batches(tag='train')
             totalTrainLoss = 0.0
 
             # cnt of batches
@@ -175,13 +209,20 @@ class Predict:
             out.write('\nepoch = {}, loss = {}, trainAcc = {}\n'.
                   format(e, totalTrainLoss, trainAcc))
             out.flush()
-
             valAcc, valLoss = self.test(sess, tag='val')
 
             print('Val, loss = {}, valAcc = {}'.
                   format(valLoss, valAcc))
             out.write('Val, loss = {}, valAcc = {}\n'.
                   format(valLoss, valAcc))
+
+            testAcc, testLoss = self.test(sess, tag='test')
+            print('Test, loss = {}, testAcc = {}'.
+                  format(testLoss, testAcc))
+            out.write('Test, loss = {}, testAcc = {}\n'.
+                  format(testLoss, testAcc))
+
+            out.flush()
 
             # we do not use cross val currently, just train, then evaluate
             if valAcc >= current_valAcc:
@@ -192,22 +233,9 @@ class Predict:
                 print('model saved at {}'.format(save_path))
                 out.write('model saved at {}\n'.format(save_path))
 
-                predictions = self.test(sess, tag='test')
-
-                print('Writing predictions at epoch {}'.format(e))
-                out.write('Writing predictions at epoch {}\n'.format(e))
-                self.writeTestPrecictions(predictions=predictions)
-
             out.flush()
         out.close()
 
-    def writeTestPrecictions(self, predictions):
-        with open(self.testOutFile, 'w') as file:
-            file.write('Id,Prediction\n')
-            for idx, prediction in enumerate(predictions):
-                if prediction == 0:
-                    prediction = -1
-                file.write(str(idx+1)+','+str(prediction)+'\n')
 
     def test(self, sess, tag = 'val'):
         if tag == 'val':
@@ -235,9 +263,6 @@ class Predict:
             total_corrects += corrects
 
         acc = total_corrects*1.0/total_samples
-        if tag == 'test':
-            return all_predictions
-        else:
-            return acc, total_loss
+        return acc, total_loss
 
 
